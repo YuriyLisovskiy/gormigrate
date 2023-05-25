@@ -110,12 +110,17 @@ func New(db *gorm.DB, options *Options, migrations []*Migration) *Gormigrate {
 	if options.TableName == "" {
 		options.TableName = DefaultOptions.TableName
 	}
+
 	if options.IDColumnName == "" {
 		options.IDColumnName = DefaultOptions.IDColumnName
 	}
+
 	if options.IDColumnSize == 0 {
 		options.IDColumnSize = DefaultOptions.IDColumnSize
 	}
+
+	_ = db.AutoMigrate(&migrationLock{})
+
 	return &Gormigrate{
 		db:         db,
 		options:    options,
@@ -164,7 +169,11 @@ func (g *Gormigrate) migrate(migrationID string) error {
 		return err
 	}
 
-	g.begin()
+	err := g.begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+
 	defer g.rollback()
 
 	if err := g.createMigrationTableIfNotExists(); err != nil {
@@ -248,7 +257,11 @@ func (g *Gormigrate) RollbackLast() error {
 		return ErrNoMigrationDefined
 	}
 
-	g.begin()
+	err := g.begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+
 	defer g.rollback()
 
 	lastRunMigration, err := g.getLastRunMigration()
@@ -273,7 +286,11 @@ func (g *Gormigrate) RollbackTo(migrationID string) error {
 		return err
 	}
 
-	g.begin()
+	err := g.begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+
 	defer g.rollback()
 
 	for i := len(g.migrations) - 1; i >= 0; i-- {
@@ -312,7 +329,11 @@ func (g *Gormigrate) getLastRunMigration() (*Migration, error) {
 
 // RollbackMigration undo a migration.
 func (g *Gormigrate) RollbackMigration(m *Migration) error {
-	g.begin()
+	err := g.begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+
 	defer g.rollback()
 
 	if err := g.rollbackMigration(m); err != nil {
@@ -443,22 +464,34 @@ func (g *Gormigrate) insertMigration(id string) error {
 	return g.tx.Exec(sql, id).Error
 }
 
-func (g *Gormigrate) begin() {
+func (g *Gormigrate) begin() error {
+	err := acquireLock(g.db)
+	if err != nil {
+		return fmt.Errorf("acquire lock: %w", err)
+	}
+
 	if g.options.UseTransaction {
 		g.tx = g.db.Begin()
 	} else {
 		g.tx = g.db
 	}
+
+	return nil
 }
 
 func (g *Gormigrate) commit() error {
+	defer func() { _ = releaseLock(g.db) }()
+
 	if g.options.UseTransaction {
 		return g.tx.Commit().Error
 	}
+
 	return nil
 }
 
 func (g *Gormigrate) rollback() {
+	defer func() { _ = releaseLock(g.db) }()
+
 	if g.options.UseTransaction {
 		g.tx.Rollback()
 	}

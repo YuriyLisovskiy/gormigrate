@@ -1,9 +1,10 @@
-module github.com/go-gormigrate/gormigrate/v2
+module github.com/YuriyLisovskiy/gormigrate/v2
 
 go 1.18
 
 require (
 	github.com/joho/godotenv v1.4.0
+	github.com/pkg/errors v0.8.1
 	github.com/stretchr/testify v1.8.0
 	gorm.io/driver/mysql v1.4.6
 	gorm.io/driver/postgres v1.3.8
